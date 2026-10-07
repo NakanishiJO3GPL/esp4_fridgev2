@@ -1,0 +1,49 @@
+[package]
+name = "esp4_fridgev2"
+version = "0.1.0"
+authors = ["Hirokazu Nakanishi <nakanisi.hirokazu@jp.panasonic.com>"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.82"
+
+[[bin]]
+name = "esp4_fridgev2"
+test = false
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[profile.release]
+opt-level = "s"
+
+
+[profile.dev]
+debug = true    # Symbols are nice, and they don't increase the size on Flash
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+# Use raw IDF APIs without pulling in HAL's legacy I2C implementation.
+esp-idf-sys = "0.38.1"
+
+
+[build-dependencies]
+embuild = { version = "0.33.5", features = ["espidf"] }
+
+# Leave bindings_module unset so camera APIs share esp_idf_sys's types.
+[[package.metadata.esp-idf-sys.extra_components]]
+# Reuse the adjacent ESP-Hosted 3.0.9-compatible checkout used by this workspace.
+component_dirs = ["components/fridge_camera", "../esp_hosted"]
+bindings_header = "components/fridge_camera/bindings.h"
+remote_component = { name = "espressif/esp_cam_sensor", git = "https://github.com/espressif/esp-video-components.git", path = "esp_cam_sensor", version = "f977b225c3ce456ac5cb9413091509e260ca635f" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+# Match the sensor manifest's unnamespaced dependency to avoid two SCCB copies.
+remote_component = { name = "esp_sccb_intf", git = "https://github.com/espressif/esp-video-components.git", path = "esp_sccb_intf", version = "f977b225c3ce456ac5cb9413091509e260ca635f" }
+
+# Pin the sensor component's otherwise floating 0.* build dependency.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/cmake_utilities", version = "=0.5.3" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/mdns", version = "=1.9.0" }

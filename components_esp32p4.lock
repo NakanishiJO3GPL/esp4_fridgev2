@@ -1,0 +1,68 @@
+dependencies:
+  esp_sccb_intf:
+    component_hash: 7caa51ae78f4fa55eb3631f664aa4de46690df947cc3536755e9ca2fe8b3d338
+    dependencies:
+    - name: idf
+      version: '>=5.3'
+    source:
+      git: https://github.com/espressif/esp-video-components.git
+      path: esp_sccb_intf
+      type: git
+    version: f977b225c3ce456ac5cb9413091509e260ca635f
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_cam_sensor:
+    component_hash: 41f1eb50ee2e95e531a86f3b0cb14a6dc8740474a91bbf0f5d9c8c9ed47ea8d4
+    dependencies:
+    - name: idf
+      version: '>=5.3'
+    - git: https://github.com/espressif/esp-video-components.git
+      name: esp_sccb_intf
+      path: esp_sccb_intf
+      version: f977b225c3ce456ac5cb9413091509e260ca635f
+    - name: espressif/cmake_utilities
+      version: 0.*
+    source:
+      git: https://github.com/espressif/esp-video-components.git
+      path: esp_cam_sensor
+      type: git
+    targets:
+    - esp32p4
+    - esp32s3
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32s31
+    version: f977b225c3ce456ac5cb9413091509e260ca635f
+  espressif/mdns:
+    component_hash: 5c148bc0996305bcf111c465bba021a8155d4247b0d9353c39da9b44a91ca381
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.9.0
+  idf:
+    source:
+      type: idf
+    version: 6.1.0
+direct_dependencies:
+- esp_sccb_intf
+- espressif/cmake_utilities
+- espressif/esp_cam_sensor
+- espressif/mdns
+- idf
+manifest_hash: a3c358d66244948bcc658e30b619720b100ba23056deb98f883288c4b52022ff
+target: esp32p4
+version: 3.0.0

@@ -1,0 +1,5 @@
+# Copy to wifi.conf and enter your 2.4 GHz access point credentials.
+# Plain key=value, no quotes. Spaces after '=' are part of the value.
+# Use password= for an open network. Never commit wifi.conf.
+ssid=YOUR_WIFI_SSID
+password=YOUR_WIFI_PASSWORD
