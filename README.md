@@ -170,14 +170,55 @@ Hosted初期化RPCが失敗した場合、初期化状態が不確定なため�
 **HTTPに認証・暗号化はありません。同じLANからアクセスできる相手は画像を閲覧できます。**
 信頼できるLANに限定し、ポート開放でインターネットに公開しないでください。
 
+## RustとCの役割分担
+
+ネットワーク制御は既存の `esp-idf-sys 0.38.1` から標準APIを直接呼びます。
+新しいRust依存クレートは追加していません。
+
+- `src/wifi_nvs.rs`：起動カウンタの読出し・上限確認・書込み・commit。
+  ハンドルはRAIIで必ず閉じ、commit成功後だけ新しい起動IDを返します。自動消去はしません。
+- `src/wifi_http.rs`：HTTP設定の上書き・サーバー起動・TCP_NODELAY・4096バイト送信制限・
+  10秒期限・実際の接続終了。期限の状態はHTTPタスクごとのthread-localで管理し、
+  現在の同期URIハンドラーを前提とします。ブロッキングsend中の期限超過の扱いは従来と同じです。
+- `src/wifi.rs`：`eh_host_wifi_set_storage(WIFI_STORAGE_RAM)` を直接呼び、C6のRAM保存を指定。
+  Hosted 3.0.9の汎用storage hookで代用しません。
+- `components/fridge_camera/network_defaults.c`：`WIFI_INIT_CONFIG_DEFAULT()`によるWi-Fi初期化と、
+  `HTTPD_DEFAULT_CONFIG()`による構造体初期化だけを残します。
+  Rustのゼロ初期化で公式マクロを代用せず、IDFバージョン・設定固有の初期値を維持します。
+- `components/fridge_camera/camera_stop.c`：CSI停止時のDMAコールバック解除とクリティカル区間を維持。
+  非公開ドライバー構造体を使うため、IDF 6.1の実ヘッダーとバージョンガードを使うCのままにします。
+
+### esp-idf-svcの検討結果
+
+手元のキャッシュにある `esp-idf-svc 0.53.0` は `esp-idf-hal 0.47` が必須依存で、
+HALの `esp-idf-sys = "0.38"` は現在の0.38.1と整合します。P4 Remote Wi-FiとIDF 6の
+条件分岐もソースにあります。ただし、この構成でのsvcのビルド・実機動作は未検証です。
+
+**現時点では採用を保留します。** default featuresを外してもHAL依存は残り、HALのI2Cモジュールには
+旧 `i2c_param_config`／`i2c_driver_install` APIが含まれます。ソースに含まれるだけで必ず
+リンクされるとは限りませんが、以前の新旧I2Cドライバー競合を再発させないことの確認が必要です。
+コンフリクトチェックの無効化やLTO回避策を導入する方針ではありません。
+
+導入を試す場合はまず最小構成のリンク・起動を検証し、次にNVS／イベントループなどを段階的に移します。
+その際、svcのNVSは `take_with(false)` で自動消去を禁止し、Hosted専用storage RPCは維持します。
+HTTPの現在の優先度4・個別タイムアウト3秒・送信期限・接続終了も維持が必要です。
+キャッシュ版svcのHTTP設定は優先度5・個別タイムアウト5秒で、単純置換は同じ動作にはなりません。
+CSI／ISP／ハードウェアJPEGは引き続きraw APIが必要です。
+
 ## 検証
 
-ホスト側には `tests/wifi_store.rs`（所有権・予算・再起動後の更新番号）と
+ホスト側には `tests/wifi_store.rs`（所有権・予算・再起動後の更新番号）、
+`tests/wifi_nvs.rs`（起動カウンタのcommit・エラー時のクローズ）、
+`tests/wifi_http.rs`（絶対期限・部分送信の予算・送信サイズ制限）、
 `tests/wifi_page.mjs`（再接続・再起動・タイムアウト・更新競合・デコード競合）のテストがあります。
 
 ```sh
 rustc --edition=2021 --test tests/wifi_store.rs -o target/wifi_store_tests
 ./target/wifi_store_tests
+rustc --edition=2021 --test tests/wifi_nvs.rs -o target/wifi_nvs_tests
+./target/wifi_nvs_tests
+rustc --edition=2021 --test tests/wifi_http.rs -o target/wifi_http_tests
+./target/wifi_http_tests
 node --test tests/wifi_page.mjs
 python3 tests/hosted_backpressure.py
 ```

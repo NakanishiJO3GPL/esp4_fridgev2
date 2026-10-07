@@ -17,6 +17,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "wifi_http.rs"]
+mod http;
+#[path = "wifi_nvs.rs"]
+mod nvs;
 #[path = "wifi_store.rs"]
 mod store;
 use store::{Budget, Latest, Reservation};
@@ -221,11 +225,7 @@ pub fn start(config: Config<'_>) -> io::Result<WifiService> {
             "initialize NVS (repair incompatible NVS manually)",
             sys::nvs_flash_init(),
         )?;
-        let mut boot_id = 0;
-        check(
-            "commit Wi-Fi boot identity",
-            sys::fridge_wifi_next_boot_id(&mut boot_id),
-        )?;
+        let boot_id = nvs::next_boot_id()?;
         service
             .shared
             .latest
@@ -256,7 +256,8 @@ pub fn start(config: Config<'_>) -> io::Result<WifiService> {
         service.wifi_initialized = true;
         check(
             "use volatile Wi-Fi credentials",
-            sys::fridge_wifi_set_storage_ram(),
+            // Hosted's generic storage hook ignores its argument; use its RPC.
+            sys::eh_host_wifi_set_storage(sys::wifi_storage_t_WIFI_STORAGE_RAM),
         )?;
         check(
             "set Wi-Fi STA mode",
@@ -318,10 +319,7 @@ pub fn start(config: Config<'_>) -> io::Result<WifiService> {
                 0,
             ),
         )?;
-        check(
-            "start HTTP server",
-            sys::fridge_httpd_start(&mut service.server),
-        )?;
+        check("start HTTP server", http::start(&mut service.server))?;
         for (uri, handler) in [
             (
                 c"/",
@@ -581,7 +579,7 @@ unsafe fn respond(
     let started = Instant::now();
     let is_jpeg = content_type == c"image/jpeg";
 
-    let code = sys::fridge_httpd_prepare_response(request);
+    let code = http::prepare_response(request);
     if code != sys::ESP_OK {
         log::warn!("HTTP response prepare failed: socket={socket}, error=0x{code:x}");
         return code;
@@ -619,7 +617,7 @@ unsafe fn respond(
         return code;
     }
 
-    let code = sys::fridge_httpd_finish_response(request);
+    let code = http::finish_response(request);
     if code != sys::ESP_OK {
         log::warn!("HTTP response close failed: socket={socket}, error=0x{code:x}");
     }

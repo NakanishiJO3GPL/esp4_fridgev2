@@ -1,5 +1,20 @@
 # OV5647 sensor integration (ESP32-P4 / ESP-IDF 6.1)
 
+## Minimal C shims
+
+`network_defaults.c` now contains only Wi-Fi initialization using
+`WIFI_INIT_CONFIG_DEFAULT()` and HTTP configuration initialization using
+`HTTPD_DEFAULT_CONFIG()`. Application-specific HTTP settings, bounded sends,
+TCP_NODELAY, deadlines and session closure live in `src/wifi_http.rs`. Boot-counter
+NVS operations live in `src/wifi_nvs.rs`; `src/wifi.rs` calls the Hosted storage
+RPC directly via the header exposed in `bindings.h`.
+
+`camera_stop.c` remains a version-guarded IDF 6.1 private-driver shim. Replacing
+it with public stop alone would omit its DMA-callback masking protection.
+The Clang-evaluated sensor ioctl enum, CMake component registration and Hosted
+backpressure overlay also remain. See the root README for the `esp-idf-svc`
+evaluation and migration constraints.
+
 ## Hosted SDIO backpressure overlay
 
 `hosted_backpressure.cmake` substitutes a generated copy of the adjacent Hosted

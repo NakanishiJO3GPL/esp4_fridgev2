@@ -21,17 +21,15 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
+#include "nvs.h"
+#include "eh_host_wifi.h"
 #include "esp_http_server.h"
 #include "esp_random.h"
 #include "mdns.h"
 
 // Defaults contain macros/function pointers that must be initialized by IDF.
 esp_err_t fridge_wifi_init(void);
-esp_err_t fridge_wifi_set_storage_ram(void);
-esp_err_t fridge_wifi_next_boot_id(uint64_t *boot_id);
-esp_err_t fridge_httpd_start(httpd_handle_t *server);
-esp_err_t fridge_httpd_prepare_response(httpd_req_t *request);
-esp_err_t fridge_httpd_finish_response(httpd_req_t *request);
+void fridge_httpd_default_config(httpd_config_t *config);
 
 // Requires the caller to run on the pinned task/core that created CSI.
 esp_err_t fridge_camera_stop_csi(esp_cam_ctlr_handle_t handle);
