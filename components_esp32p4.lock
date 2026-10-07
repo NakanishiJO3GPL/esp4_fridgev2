@@ -43,6 +43,29 @@ dependencies:
     - esp32c61
     - esp32s31
     version: f977b225c3ce456ac5cb9413091509e260ca635f
+  espressif/esp_hosted:
+    component_hash: d72bce4d4a9fd6d4b610f3437735f58c70cfe40abfc969b53396dbb2e1d4c49b
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32
+    - esp32c2
+    - esp32s2
+    - esp32s3
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h2
+    - esp32h4
+    - esp32h21
+    - esp32p4
+    version: 3.0.9
   espressif/mdns:
     component_hash: 5c148bc0996305bcf111c465bba021a8155d4247b0d9353c39da9b44a91ca381
     dependencies:
@@ -61,8 +84,8 @@ direct_dependencies:
 - esp_sccb_intf
 - espressif/cmake_utilities
 - espressif/esp_cam_sensor
+- espressif/esp_hosted
 - espressif/mdns
-- idf
-manifest_hash: a3c358d66244948bcc658e30b619720b100ba23056deb98f883288c4b52022ff
+manifest_hash: 1c0f20800caff71555992b6646b1117a42c01c87faadd0fbfbd7a200c8931ef5
 target: esp32p4
 version: 3.0.0

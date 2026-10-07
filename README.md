@@ -31,11 +31,29 @@ password=使用するパスワード
 - Hostedの実際のstorage RPCを使い、今回の設定はC6のRAMへ渡します。
   過去にC6へ保存された資格情報を消去する処理ではありません。
 
-このワークスペースの既存ドライバ `../esp_hosted` を `Cargo.toml` のcomponent_dirsで利用しています。
-実装確認したチェックアウトは `0ff20e9a8731ee826d4e8199cef15e956a5c1745`（manifest 3.0.9、
-`v3.0.9`から19コミット後）です。別の場所へプロジェクトを移す場合は、このドライバの場所も合わせてください。
-ESP-IDF 6.1にWi-Fi Remoteが含まれるため、別のesp_wifi_remoteコンポーネントは追加していません。
-mDNSには固定バージョンの `espressif/mdns 1.9.0` を利用します。
+SDK・ドライバーはEspressif公式リポジトリ／公式Component Registryから取得します。
+隣接する `../esp_hosted` への依存はありません。
+
+- ESP-IDF：`https://github.com/espressif/esp-idf.git` の公式6.1リリースコミット
+  `fff9895c82d744c7237be8847347bdd1b07c6643` を `.cargo/config.toml` で指定。
+- Hosted：公式Component Registryの `espressif/esp_hosted =3.0.9`。
+- センサー／SCCB：公式 `espressif/esp-video-components` のコミット固定（`Cargo.toml`参照）。
+- mDNS／CMake utilities：公式Component Registryの固定バージョン。
+
+非公開CSIヘッダーも、リンクする同じ公式SDK内の `esp_driver_cam/csi/src` を直接参照します。
+`idf/official_sdk.cmake` がSDKの公式origin URL・固定コミット・変更のない追跡ファイルと、
+CSIドライバーのパスを確認します。別コンポーネントによるCSIドライバーの差し替えは拒否します。
+`IDF_PATH`が設定されている場合、esp-idf-sysはそのローカルSDKを優先するため、
+そのチェックアウトも上記条件を満たす必要があります。環境変数の `IDF_PATH` 自体は変更しません。
+SDK自動取得を使う場合はビルド時に `env -u IDF_PATH` を指定し、起動済みSDK環境を外してください。
+初回取得にはGitHub・EspressifのRegistry／配布ストレージへのネットワークアクセスが必要です。
+
+HostedのGit取得はComponent Manager 3.1.2のサブモジュールメタデータのハッシュ不一致を
+起こすため、検証を無効化せず公式配布アーカイブを使います。以前のチェックアウト
+`0ff20e9a8731ee826d4e8199cef15e956a5c1745`より19コミット前の正式版ですが、
+現在の4-bit SDIO構成で使う集約送信・storage RPC・通信プロトコルは同一です。
+後続の他トランスポート・省電力・C6側修正は含みません。既存C6 FWは書き換えません。
+ESP-IDF 6.1にWi-Fi Remoteが含まれるため、別のesp_wifi_remoteコンポーネントは追加しません。
 
 ```sh
 cargo run --release
@@ -131,20 +149,13 @@ Hosted初期化RPCが失敗した場合、初期化状態が不確定なため�
 - 通常のアプリログは `Capture trigger: frame N, center APL=…, delta=…` のみ。
   JPEG生成・計測・公開、HTTP接続・送信、Wi-Fi接続、Hosted初期化のINFOログは表示しません。
   異常時のWARN／ERRORは診断用に残します。ROM／ブートローダーやアプリ初期化前の起動ログは別です。
-- `components/fridge_camera/hosted_backpressure.cmake` がHostedのSDIO集約送信に
-  ビルド時のローカル修正を適用します。空きバッファ待ちの短い期限を超えても
-  未送信のDMA集約を保持し、バスロックを外して1msブロックした後に再試行します。
-  これにより、C6の一時的な混雑でTCPパケットを破棄しないようにします。
-  待機用の追加フレームバッファは作らず、既存の集約バッファだけを保持します。
-  停止要求時には待ち処理から退出します。C6が恒久的に応答しない場合、
-  HTTPの送信期限は引き続き有効ですが、この修正だけでC6を自動再起動することはありません。
-- 隣接する `../esp_hosted` のソースは変更しません。対象ソースから生成したコピーだけを
-  元のtransportターゲットでコンパイルします。想定したコードが変更された場合や
-  置換箇所が複数ある場合は、誤適用せずビルドを失敗させます。
+- Hostedは公式配布の3.0.9ソースを無改変でコンパイルします。
+  空きバッファ待ちで未送信のSDIO集約を保持し続ける独自修正は撤去しました。
+  公式実装の待ち条件によっては集約が破棄され、TCP再送により画像配信の遅延が増える可能性があります。
+  変更後の転送時間・タイムアウトは実機で再確認してください。HTTPの送信期限は維持しています。
 - 定期パケット統計は `CONFIG_ESP_HOSTED_HOST_PKT_STATS=n` で無効です。
   再度診断を有効化する場合、
-  この修正前の `credit_stall` は空きバッファ待ちによる集約破棄回数でした。
-  修正後は、集約を保持したまま再試行した待ちラウンド数なので、増えても破棄を意味しません。
+  公式3.0.9の `credit_stall` は空きバッファ待ちによる集約破棄回数を示します。
   現在のHosted実装ではSW_AGGRのTX `trans`／`out`／`drop` の計数が未実装なので、
   これらが0でも未送信・未破棄とは判断できません。
 - `fridge_http` の定期送信進捗ログと計測は削除しました。送信期限と失敗時のWARNは維持します。
@@ -182,11 +193,24 @@ Hosted初期化RPCが失敗した場合、初期化状態が不確定なため�
   現在の同期URIハンドラーを前提とします。ブロッキングsend中の期限超過の扱いは従来と同じです。
 - `src/wifi.rs`：`eh_host_wifi_set_storage(WIFI_STORAGE_RAM)` を直接呼び、C6のRAM保存を指定。
   Hosted 3.0.9の汎用storage hookで代用しません。
-- `components/fridge_camera/network_defaults.c`：`WIFI_INIT_CONFIG_DEFAULT()`によるWi-Fi初期化と、
-  `HTTPD_DEFAULT_CONFIG()`による構造体初期化だけを残します。
-  Rustのゼロ初期化で公式マクロを代用せず、IDFバージョン・設定固有の初期値を維持します。
-- `components/fridge_camera/camera_stop.c`：CSI停止時のDMAコールバック解除とクリティカル区間を維持。
-  非公開ドライバー構造体を使うため、IDF 6.1の実ヘッダーとバージョンガードを使うCのままにします。
+- `src/network_defaults.rs`：`WIFI_INIT_CONFIG_DEFAULT()`／`HTTPD_DEFAULT_CONFIG()`相当の
+  初期値をRustで明示的に構築します。Wi-FiのOS／暗号関数テーブル、magic、Kconfig由来の値は
+  `esp-idf-sys`のバインディングから取得し、ゼロ初期化だけで代用しません。
+  `network_defaults.c`は削除しました。全フィールドの明示とESP-IDF 6.1のコンパイル時チェックにより、
+  SDK変更時には見直しを要求します。`tskNO_AFFINITY`のみ、bindgenが扱えないキャスト式を
+  `bindings.h`のenumでClangに評価させます（Cの実行処理ではありません）。
+  SDK更新時は `python3 tests/network_defaults.py` で公式マクロとの対応も確認してください。
+- `src/camera_stop.rs`：CSI停止時のDMAコールバック解除とクリティカル区間をRustで実装。
+  実SDKの非公開ヘッダーから生成した型と `offset_of!` を使い、構造体レイアウトを手書きしません。
+  元の固定タスク／IRQコア上で停止し、エラー時もRAIIでクリティカル区間を解除します。
+  ESP-IDF 6.1・ESP32-P4・2コア構成をコンパイル時に確認します。
+  `camera_stop.c`と`components/fridge_camera`は削除しましたが、非公開APIへの依存は残ります。
+
+  `idf/`にはヘッダーのみのSDKビルド設定を置きます。`idf/CMakeLists.txt`はSDK依存関係・
+  非公開CSIヘッダーの検索パスを設定し、公式SDKの参照先を検査します。
+    独自CソースやHostedの修正コピーはコンパイルしません。
+  `idf/bindings.h`はRust用バインディング生成に必要です。ESP-IDF・公式センサードライバー・
+  Hosted自体のCコードのコンパイルは引き続き必要です。詳細は `idf/README.md` を参照してください。
 
 ### esp-idf-svcの検討結果
 
@@ -210,6 +234,9 @@ CSI／ISP／ハードウェアJPEGは引き続きraw APIが必要です。
 ホスト側には `tests/wifi_store.rs`（所有権・予算・再起動後の更新番号）、
 `tests/wifi_nvs.rs`（起動カウンタのcommit・エラー時のクローズ）、
 `tests/wifi_http.rs`（絶対期限・部分送信の予算・送信サイズ制限）、
+`tests/network_defaults.py`（使用中SDKの公式マクロとRust初期化の全フィールド照合）、
+`tests/camera_stop.rs`（CSI停止の呼出し順・コールバック解除・エラー時のロック解除）、
+`tests/official_sdk.py`（公式SDKのorigin・コミット・変更・CSI差し替え拒否の模擬テスト）、
 `tests/wifi_page.mjs`（再接続・再起動・タイムアウト・更新競合・デコード競合）のテストがあります。
 
 ```sh
@@ -219,9 +246,14 @@ rustc --edition=2021 --test tests/wifi_nvs.rs -o target/wifi_nvs_tests
 ./target/wifi_nvs_tests
 rustc --edition=2021 --test tests/wifi_http.rs -o target/wifi_http_tests
 ./target/wifi_http_tests
+rustc --edition=2021 --test tests/camera_stop.rs -o target/camera_stop_tests
+./target/camera_stop_tests
 node --test tests/wifi_page.mjs
-python3 tests/hosted_backpressure.py
+
+python3 tests/network_defaults.py
+python3 tests/official_sdk.py
 ```
 
 ビルド／ホストテストと実機検証は別です。C6との通信、AP接続、PC表示、
-閲覧中のP4再起動、DHCP変更、JPEGの色順は実機で確認してください。
+閲覧中のP4再起動、DHCP変更、JPEGの色順、CSI停止・再起動は実機で確認してください。
+CSI停止のホストテストは模擬SDKで制御フローを確認するもので、実SDKのABIや割込み・DMA動作を検証しません。

@@ -11,7 +11,9 @@ build-std = ["std", "panic_abort"]
 
 [env]
 MCU = "esp32p4"
-ESP_IDF_VERSION = "v6.1"
+# Official IDF 6.1 release commit; keep in sync with idf/official_sdk.cmake.
+ESP_IDF_VERSION = { value = "commit:fff9895c82d744c7237be8847347bdd1b07c6643", force = true }
+ESP_IDF_REPOSITORY = { value = "https://github.com/espressif/esp-idf.git", force = true }
 ESP_IDF_TOOLS_INSTALL_DIR = "global"
 
 # Uncomment this if you have moved the target dir by setting CARGO_TARGET_DIR or similar.

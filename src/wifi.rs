@@ -17,6 +17,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "network_defaults.rs"]
+mod defaults;
 #[path = "wifi_http.rs"]
 mod http;
 #[path = "wifi_nvs.rs"]
@@ -251,7 +253,11 @@ pub fn start(config: Config<'_>) -> io::Result<WifiService> {
         // Hosted allocates host channels before its initialization RPC. If that
         // RPC fails, keep the netif and prohibit a second start until reboot.
         service.initialization_uncertain = true;
-        check("initialize Hosted Wi-Fi", sys::fridge_wifi_init())?;
+        let wifi_init_config = defaults::wifi_config();
+        check(
+            "initialize Hosted Wi-Fi",
+            sys::esp_wifi_init(&wifi_init_config),
+        )?;
         service.initialization_uncertain = false;
         service.wifi_initialized = true;
         check(

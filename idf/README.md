@@ -1,32 +1,39 @@
 # OV5647 sensor integration (ESP32-P4 / ESP-IDF 6.1)
 
-## Minimal C shims
+## Rust runtime and header-only integration
 
-`network_defaults.c` now contains only Wi-Fi initialization using
-`WIFI_INIT_CONFIG_DEFAULT()` and HTTP configuration initialization using
-`HTTPD_DEFAULT_CONFIG()`. Application-specific HTTP settings, bounded sends,
-TCP_NODELAY, deadlines and session closure live in `src/wifi_http.rs`. Boot-counter
-NVS operations live in `src/wifi_nvs.rs`; `src/wifi.rs` calls the Hosted storage
-RPC directly via the header exposed in `bindings.h`.
+`network_defaults.c` has been removed. `src/network_defaults.rs` implements the
+ESP-IDF 6.1 Wi-Fi and HTTP initializers using evaluated `esp-idf-sys` constants,
+the OS/crypto function tables, and exhaustive struct fields. A compile-time
+version guard rejects other IDF major/minor versions; run
+`python3 tests/network_defaults.py` to compare all initializer fields against the
+actual SDK headers. The cast-containing `tskNO_AFFINITY` macro is exposed by a
+Clang-evaluated enum in `bindings.h`, not a runtime C initializer.
+Application-specific HTTP settings, bounded sends, TCP_NODELAY, deadlines and
+session closure live in `src/wifi_http.rs`. Boot-counter NVS operations live in
+`src/wifi_nvs.rs`; `src/wifi.rs` calls the Hosted storage RPC directly via the
+header exposed in `bindings.h`.
 
-`camera_stop.c` remains a version-guarded IDF 6.1 private-driver shim. Replacing
-it with public stop alone would omit its DMA-callback masking protection.
-The Clang-evaluated sensor ioctl enum, CMake component registration and Hosted
-backpressure overlay also remain. See the root README for the `esp-idf-svc`
+`camera_stop.c` has also been removed. `src/camera_stop.rs` preserves DMA-callback
+masking and atomic CSI stop using bindings generated from the actual private SDK
+headers. The former `components/fridge_camera` directory has been removed;
+`idf/` now holds only header-based SDK integration and its documentation.
+`idf/CMakeLists.txt` still registers a header-only component to expose SDK
+include paths/dependencies and check the official SDK. It has no custom
+runtime C sources. SDK, official sensor and Hosted C code is still compiled.
+Replacing the helper with public stop alone would omit its callback protection.
+The Clang-evaluated sensor ioctl enum and CMake component registration remain. See the root README for the `esp-idf-svc`
 evaluation and migration constraints.
 
-## Hosted SDIO backpressure overlay
+## Unmodified official Hosted source
 
-`hosted_backpressure.cmake` substitutes a generated copy of the adjacent Hosted
-SDIO source in its existing transport target. The only behavioral change is to
-retain an unsent SW_AGGR DMA buffer across credit-wait timeouts, releasing the
-bus lock and blocking between retries so RX and TCP ACKs can continue. Shutdown
-still exits the wait; the upstream checkout is not modified. An unexpected or
-ambiguous upstream code pattern fails configuration instead of applying an
-unchecked patch. See `WIFI.md` for runtime counters and limitations.
-
-Run `python3 tests/hosted_backpressure.py` to check the transformation and its
-fail-closed guards. This is not a hardware throughput test.
+Hosted 3.0.9 is compiled directly from its official managed component sources.
+The project-local aggregate-retention overlay and its tests have been removed;
+no replacement SDIO C source is generated or compiled. The official credit-wait
+logic can discard an unsent aggregate under its timeout conditions, potentially
+increasing TCP retransmissions and image latency. Transfer time and timeout
+behavior must be rechecked on hardware. HTTP send deadlines remain unchanged.
+See `../README.md` for runtime counters and limitations.
 
 ## Rust API
 
@@ -199,7 +206,7 @@ Successful output sizes and JPEG SOI/EOI markers are checked before delivery.
 metadata, dimensions and `data: &[u8]`. Bytes are valid only during the callback;
 write/transmit/copy them there if persistence is needed. `main.rs` copies the
 JPEG into the Wi-Fi HTTP publisher without normal completion/publication logs. See [Wi-Fi setup and reboot
-recovery](../../WIFI.md) for credentials, C6 SDIO wiring, browser display and
+recovery](../README.md) for credentials, C6 SDIO wiring, browser display and
 additional bounded PSRAM usage. Filesystem persistence is not implemented.
 
 JPEG timing measurements and routine JPEG/HTTP logs are removed. Normal app
@@ -281,13 +288,18 @@ flags are latched for inspection; reported transfer sizes are not a substitute
 for checking actual sensor timing/frame integrity on hardware. AWB/AE/CCM tuning
 is not part of this initial demosaic implementation.
 
-`camera_stop.c` is a small **ESP-IDF 6.1-specific** teardown adapter, not an
+`src/camera_stop.rs` is a small **ESP-IDF 6.1-specific** teardown adapter, not an
 alternative sensor driver. IDF's CSI completion ISR rearms DMA before publishing
 completion. The helper masks DMA callbacks and stops CSI in one critical section
-on the IRQ core before the controller, state or PSRAM buffers are freed. It uses
-IDF's actual private CSI header, never a copied struct layout, and deliberately
-fails compilation on other IDF minor versions until reviewed. If teardown fails,
-remaining hardware-reachable allocations are retained rather than freed unsafely.
+on the original pinned task/IRQ core before the controller, state or PSRAM buffers
+are freed. It uses generated bindings from IDF's actual private CSI header and
+`offset_of!`, never a copied struct layout. A RAII guard releases the critical
+section on all acquired-lock return paths. Compilation requires IDF 6.1,
+ESP32-P4 and two FreeRTOS cores; SDK changes require review. Private API dependence
+remains. If teardown fails, remaining hardware-reachable allocations are retained
+rather than freed unsafely. `tests/camera_stop.rs` checks control flow with a mock
+SDK, not actual SDK ABI or hardware interrupt/DMA behavior; hardware stop/restart
+validation is still required.
 
 The Rust callback code expects the default non-cache-safe ISR configuration; do
 not enable CSI/ISP cache-safe ISR options without moving every callback/callee to
@@ -300,10 +312,25 @@ IRAM and validating their internal-memory requirements.
 - Official `espressif/esp_cam_sensor` **2.1.0** and `esp_sccb_intf` **0.0.8**, both from
   `https://github.com/espressif/esp-video-components.git` at commit
   **`f977b225c3ce456ac5cb9413091509e260ca635f`**.
+- Official `espressif/esp_hosted` **3.0.9** comes from the Espressif Component
+  Registry, not an adjacent checkout. Its published archive bundles the required
+  protobuf-c sources. Git installation with Component Manager 3.1.2 has a
+  submodule `.git` metadata hash mismatch; integrity checking is not disabled.
+  This is 19 commits before the previous checkout, but the active SDIO aggregation,
+  storage RPC and protocol code are unchanged. Later unrelated transport and
+  coprocessor fixes are not included; the existing coprocessor FW is not changed.
+- Official ESP-IDF **6.1** is pinned to release commit
+  `fff9895c82d744c7237be8847347bdd1b07c6643` in `.cargo/config.toml`.
+  `official_sdk.cmake` checks the official HTTPS origin, exact HEAD, tracked-file
+  cleanliness and that the CSI driver comes from that same SDK, not an override.
+  Private headers are read in place from the official SDK; they are not copied.
+  An environment `IDF_PATH` takes precedence in esp-idf-sys and must also pass
+  these checks. See the root README for automatic SDK download and network needs.
 - The sensor's otherwise floating `cmake_utilities: 0.*` dependency is constrained
   to **`=0.5.3`**.
-- `components/fridge_camera` declares driver dependencies and builds the small
-  teardown adapter; `bindings.h` extends the **existing root bindings**. Deliberately
+- `idf/CMakeLists.txt` declares driver dependencies and exposes headers,
+  including the private CSI/DMA headers needed by the Rust teardown adapter;
+  `bindings.h` extends the **existing root bindings**. Deliberately
   no `bindings_module`: use `esp_idf_sys` and its existing I2C/CSI/ISP types,
   not incompatible copies in a separate module.
 - Rust depends directly on `esp-idf-sys`, not `esp-idf-svc`/`esp-idf-hal`. HAL
@@ -322,7 +349,8 @@ On the next build, IDF Component Manager downloads the pinned components. Git
 sources need GitHub access; registry dependencies need the Espressif component
 registry/storage hosts. Preserve the generated `components_esp32p4.lock` when
 produced by esp-idf-sys, including component hashes. This integration does not
-require changes to the Rust dependency versions or the IDF selection in `.cargo/config.toml`.
+require changes to the Rust dependency versions. The SDK selection is pinned in
+`.cargo/config.toml` and checked by `official_sdk.cmake`.
 If `ESP_IDF_SYS_EXTRA_COMPONENTS_FILE` is set, it overrides root Cargo metadata;
 its entries must include this integration. Component Manager must be enabled.
 The installed IDF Component Manager converts the sensor's sibling

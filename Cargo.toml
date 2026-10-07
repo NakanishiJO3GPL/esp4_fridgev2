@@ -32,10 +32,15 @@ embuild = { version = "0.33.5", features = ["espidf"] }
 
 # Leave bindings_module unset so camera APIs share esp_idf_sys's types.
 [[package.metadata.esp-idf-sys.extra_components]]
-# Reuse the adjacent ESP-Hosted 3.0.9-compatible checkout used by this workspace.
-component_dirs = ["components/fridge_camera", "../esp_hosted"]
-bindings_header = "components/fridge_camera/bindings.h"
+# idf/ contains only build integration; all drivers come from official sources.
+component_dirs = ["idf"]
+bindings_header = "idf/bindings.h"
 remote_component = { name = "espressif/esp_cam_sensor", git = "https://github.com/espressif/esp-video-components.git", path = "esp_cam_sensor", version = "f977b225c3ce456ac5cb9413091509e260ca635f" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+# Official release archive includes protobuf-c and avoids the manager's Git
+# submodule-metadata hashing bug. Active SDIO/storage/protocol code is unchanged.
+remote_component = { name = "espressif/esp_hosted", version = "=3.0.9" }
 
 [[package.metadata.esp-idf-sys.extra_components]]
 # Match the sensor manifest's unnamespaced dependency to avoid two SCCB copies.

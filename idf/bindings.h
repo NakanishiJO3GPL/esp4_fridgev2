@@ -9,6 +9,9 @@
 
 #include "esp_cam_ctlr.h"
 #include "esp_cam_ctlr_csi.h"
+#include "esp_cam_ctlr_interface.h"
+#include "esp_cam_ctlr_csi_internal.h"
+#include "esp_private/dw_gdma.h"
 #include "driver/isp.h"
 #include "driver/jpeg_encode.h"
 #include "hal/color_types.h"
@@ -27,12 +30,12 @@
 #include "esp_random.h"
 #include "mdns.h"
 
-// Defaults contain macros/function pointers that must be initialized by IDF.
-esp_err_t fridge_wifi_init(void);
-void fridge_httpd_default_config(httpd_config_t *config);
 
-// Requires the caller to run on the pinned task/core that created CSI.
-esp_err_t fridge_camera_stop_csi(esp_cam_ctlr_handle_t handle);
+// Bindgen cannot evaluate the cast in tskNO_AFFINITY; Clang supplies its value.
+enum {
+    FRIDGE_TSK_NO_AFFINITY = tskNO_AFFINITY,
+};
+
 
 // Bindgen cannot reliably evaluate an ioctl macro containing sizeof(int).
 // Let Clang evaluate the official command instead of duplicating its encoding.

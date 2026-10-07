@@ -1,5 +1,5 @@
 fn main() {
-    println!("cargo:rerun-if-changed=components/fridge_camera");
+    println!("cargo:rerun-if-changed=idf");
     println!("cargo:rerun-if-changed=sdkconfig.defaults");
     println!("cargo:rerun-if-changed=wifi.conf");
     if let Ok(contents) = std::fs::read_to_string("wifi.conf") {

@@ -31,20 +31,17 @@ impl SendBudget {
 
 #[cfg(target_os = "espidf")]
 mod idf {
+    use super::super::defaults;
     use super::SendBudget;
     use esp_idf_sys as sys;
-    use std::{cell::Cell, ffi::c_char, mem::MaybeUninit};
+    use std::{cell::Cell, ffi::c_char};
 
     thread_local! {
         static SEND_BUDGET: Cell<Option<SendBudget>> = const { Cell::new(None) };
     }
 
     pub(crate) unsafe fn start(server: *mut sys::httpd_handle_t) -> sys::esp_err_t {
-        // Rust Default is zeroed, not HTTPD_DEFAULT_CONFIG(). Let the installed
-        // IDF headers initialize every default (including version-specific fields).
-        let mut config = MaybeUninit::<sys::httpd_config_t>::uninit();
-        sys::fridge_httpd_default_config(config.as_mut_ptr());
-        let mut config = config.assume_init();
+        let mut config = defaults::http_config();
         config.core_id = 1;
         config.task_priority = 4;
         config.stack_size = 8192;

@@ -21,6 +21,8 @@ use std::{
 
 #[path = "camera_buffers.rs"]
 mod buffers;
+#[path = "camera_stop.rs"]
+mod stop;
 use buffers::{Buffers, FrameLease, LeasePool};
 pub use buffers::{LuminanceError, Region};
 
@@ -707,10 +709,7 @@ impl Camera {
             self.sensor_started = false;
         }
         if self.csi_started {
-            check(
-                "quiesce DMA callbacks and stop CSI",
-                sys::fridge_camera_stop_csi(self.csi),
-            )?;
+            check("quiesce DMA callbacks and stop CSI", stop::stop(self.csi))?;
             self.csi_started = false;
         }
         if self.csi_enabled {
