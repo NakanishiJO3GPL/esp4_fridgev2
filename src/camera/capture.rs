@@ -53,6 +53,7 @@ pub struct Config {
     /// clock-router output; ESP-IDF validates the selected GPIO.
     pub xclk_gpio: Option<i32>,
     pub internal_i2c_pullups: bool,
+
     pub mipi_phy_supply: Option<MipiPhySupply>,
 }
 
@@ -68,6 +69,7 @@ impl Config {
             pwdn_gpio: None,
             xclk_gpio: None,
             internal_i2c_pullups: false,
+
             mipi_phy_supply: Some(MipiPhySupply {
                 channel: 3,
                 voltage_mv: 2500,
@@ -469,6 +471,7 @@ impl Camera {
         )?;
         // set_format may change stream state in sensor drivers: enforce standby.
         self.set_sensor_stream(false)?;
+
         self.allocate_buffers()?;
 
         // In IDF 6.1, CSI's two color fields describe the DMA stream AFTER ISP.

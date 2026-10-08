@@ -66,27 +66,34 @@ pub fn average_luminance(
             || region.width > width - region.x
             || region.height > height - region.y
         {
-            return Err(LuminanceError::InvalidRegion(index));
+            pixel_counts[index] = 0;
         }
-        pixel_counts[index] = region
-            .width
-            .checked_mul(region.height)
-            .and_then(|count| u64::try_from(count).ok())
-            .filter(|count| *count <= u64::MAX / 255)
-            .ok_or(LuminanceError::InvalidRegion(index))?;
+        else {
+            pixel_counts[index] = region
+                .width
+                .checked_mul(region.height)
+                .and_then(|count| u64::try_from(count).ok())
+                .filter(|count| *count <= u64::MAX / 255)
+                .ok_or(LuminanceError::InvalidRegion(index))?;
+        }
     }
 
     let mut means = [0.0; 3];
     for (index, region) in regions.iter().enumerate() {
-        let mut sum = 0u64;
-        for y in region.y..region.y + region.height {
-            let start = y * stride + region.x * 2;
-            let row = &data[start..start + region.width * 2];
-            for pixel in row.chunks_exact(2) {
-                sum += u64::from(pixel[1]);
+        if pixel_counts[index] != 0 {
+            let mut sum = 0u64;
+            for y in region.y..region.y + region.height {
+                let start = y * stride + region.x * 2;
+                let row = &data[start..start + region.width * 2];
+                for pixel in row.chunks_exact(2) {
+                    sum += u64::from(pixel[1]);
+                }
             }
+            means[index] = sum as f32 / pixel_counts[index] as f32;
         }
-        means[index] = sum as f32 / pixel_counts[index] as f32;
+        else {
+            means[index] = 0.0;
+        }
     }
     Ok(means)
 }

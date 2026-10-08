@@ -26,27 +26,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         xclk_gpio: None,
         reset_gpio: None,
         pwdn_gpio: None,
+
         ..capture::Config::new(7, 8)
     };
     // Sample three configured regions for APL-based trigger detection.
     let regions = [
+        // Left side
         capture::Region {
             x: 0,
             y: 0,
-            width: capture::WIDTH / 10,
-            height: capture::HEIGHT / 10,
+            width: 0,
+            height: 0,
         },
+        // Center
         capture::Region {
-            x: capture::WIDTH / 10,
-            y: 0,
-            width: capture::WIDTH / 10,
-            height: capture::HEIGHT / 10,
+            x: 920,
+            y: 1040,
+            width: 80,
+            height: 40,
         },
+        // Right side
         capture::Region {
-            x: 2 * (capture::WIDTH / 10),
+            x: 0,
             y: 0,
-            width: capture::WIDTH - 2 * (capture::WIDTH / 10),
-            height: capture::HEIGHT / 10,
+            width: 0,
+            height: 0,
         },
     ];
     // Initial tuning values from the reference detector, in raw Y units.

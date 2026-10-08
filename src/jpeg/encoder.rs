@@ -1,6 +1,6 @@
 //! Triggered full-frame JPEG encoding on CPU1 using read-only CSI buffer leases.
 //!
-//! Fixed UYVY input goes directly to JPEG DMA without copying or pixel processing.
+//! Fixed UYVY input goes directly to JPEG DMA without copying or preprocessing.
 //! Hardware pixel_reverse is disabled; there is no startup calibration.
 
 use crate::{
@@ -105,6 +105,7 @@ where
             "JPEG quality must be 1..=100",
         ));
     }
+
     let (requests_tx, requests_rx) = sync_channel::<Request>(1);
     let (free_tx, free_rx) = sync_channel(1);
     let (ready_tx, ready_rx) = sync_channel::<Result<(), String>>(1);
@@ -132,7 +133,7 @@ where
                     let watchdog = TaskWatchdog::subscribe()?;
                     watchdog.reset()?;
                     let (input, size) = encoder.encode(frame)?;
-                    // Success guarantees JPEG DMA is done. Release the camera lease
+                    // Success guarantees JPEG DMA is done. Release any camera lease
                     // before publication/network copying to resume capture promptly.
                     drop(input);
                     watchdog.reset()?;
@@ -198,7 +199,11 @@ impl Memory {
         let mut allocated_size = 0;
         let pointer =
             unsafe { sys::jpeg_alloc_encoder_mem(size, &config, &mut allocated_size) }.cast();
-        Self::checked(pointer, allocated_size)
+        let memory = Self::checked(pointer, allocated_size)?;
+        if memory.size < size {
+            return Err(error("JPEG buffer too small", sys::ESP_ERR_INVALID_SIZE));
+        }
+        Ok(memory)
     }
 
     fn checked(pointer: *mut u8, size: usize) -> camera::Result<Self> {
@@ -224,6 +229,7 @@ struct Encoder {
     handle: sys::jpeg_encoder_handle_t,
     input: Option<OwnedFrame>,
     output: Memory,
+
     config: sys::jpeg_encode_cfg_t,
     dma_quiescent: bool,
 }
@@ -244,6 +250,7 @@ impl Encoder {
             handle,
             input: None,
             output,
+
             config: sys::jpeg_encode_cfg_t {
                 width: WIDTH as u32,
                 height: HEIGHT as u32,
@@ -263,7 +270,6 @@ impl Encoder {
         self.input = Some(input);
         let input = self.input.as_ref().unwrap();
         let input_bytes = input.data();
-        let input_pointer = input_bytes.as_ptr();
         let input_size = self
             .config
             .width
@@ -271,6 +277,7 @@ impl Encoder {
             .and_then(|pixels| pixels.checked_mul(2))
             .filter(|bytes| *bytes as usize <= input_bytes.len())
             .ok_or_else(|| error("invalid JPEG input dimensions", sys::ESP_ERR_INVALID_SIZE))?;
+        let input_pointer = input_bytes.as_ptr();
         let mut size = 0;
         self.dma_quiescent = false;
         check("encode JPEG image", unsafe {
@@ -316,6 +323,7 @@ impl Drop for Encoder {
                 std::mem::forget(input);
             }
             self.output.pointer = ptr::null_mut();
+
             return;
         }
         if let Err(error) = check("delete hardware JPEG encoder", unsafe {
