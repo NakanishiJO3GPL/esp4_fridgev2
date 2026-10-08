@@ -14,7 +14,7 @@ done
 mkdir -p target/module-tests
 
 # Compile for the host, independently of Cargo's ESP32-P4 target setting.
-for test in camera_buffers camera_stop jpeg_pixels jpeg_probe trigger wifi_http wifi_nvs wifi_store; do
+for test in camera_buffers camera_stop trigger wifi_http wifi_nvs wifi_store; do
     printf '\n=== %s ===\n' "$test"
     rustc --edition=2021 -D warnings --test "tests/$test.rs" \
         -o "target/module-tests/${test}_tests"

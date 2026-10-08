@@ -1,11 +1,11 @@
 //! Triggered full-frame JPEG encoding on CPU1 using read-only CSI buffer leases.
 //!
-//! Verified UYVY goes directly to JPEG DMA without copying or pixel processing.
-//! Other verified layouts fall back to one exclusive snapshot for repacking.
+//! Fixed UYVY input goes directly to JPEG DMA without copying or pixel processing.
+//! Hardware pixel_reverse is disabled; there is no startup calibration.
 
 use crate::{
     camera::{
-        capture::{self as camera, Frame, OwnedFrame, FRAME_BYTES, HEIGHT, STRIDE, WIDTH},
+        capture::{self as camera, Frame, OwnedFrame, HEIGHT, WIDTH},
         thread::TaskWatchdog,
         trigger::JpegTriggerNotification,
     },
@@ -17,8 +17,6 @@ use std::{
     sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
     thread::{self, JoinHandle},
 };
-
-use super::{pixels, probe};
 
 const STACK_BYTES: usize = 8192;
 
@@ -49,13 +47,12 @@ pub struct EncodedImage<'a> {
 /// Single-producer handle, intended to live in the camera callback.
 /// One availability token bounds queued/in-flight JPEG work to one frame.
 pub struct CaptureSender {
-    free_snapshot: Receiver<Option<Memory>>,
+    available: Receiver<()>,
     requests: SyncSender<Request>,
 }
 
 impl CaptureSender {
-    /// Lease the triggering frame without copying when UYVY was verified.
-    /// Other verified layouts copy into the preallocated fallback snapshot.
+    /// Lease the UYVY triggering frame without copying or preprocessing.
     /// Returns false while the single job token is queued/in use.
     pub fn try_submit(
         &self,
@@ -68,63 +65,33 @@ impl CaptureSender {
                 sys::ESP_ERR_INVALID_ARG,
             ));
         }
-        let snapshot = match self.free_snapshot.try_recv() {
-            Ok(snapshot) => snapshot,
+        match self.available.try_recv() {
+            Ok(()) => (),
             Err(TryRecvError::Empty) => return Ok(false),
             Err(TryRecvError::Disconnected) => {
                 return Err(error("JPEG worker stopped", sys::ESP_ERR_INVALID_STATE));
             }
         };
-        let input = match snapshot {
-            None => Input::Frame(frame.lease()),
-            Some(mut snapshot) => {
-                snapshot.bytes_mut()[..FRAME_BYTES].copy_from_slice(frame.data());
-                Input::Snapshot(snapshot)
-            }
-        };
         self.requests
-            .try_send(Request { input, trigger })
-            .map_err(|_| error("submit JPEG snapshot", sys::ESP_ERR_INVALID_STATE))?;
+            .try_send(Request {
+                frame: frame.lease(),
+                trigger,
+            })
+            .map_err(|_| error("submit JPEG frame", sys::ESP_ERR_INVALID_STATE))?;
         Ok(true)
     }
 }
 
 struct Request {
-    input: Input,
+    frame: OwnedFrame,
     trigger: JpegTriggerNotification,
-}
-
-/// Retains exclusive snapshot ownership or a read-only HELD camera buffer
-/// until JPEG DMA has completed. Frame input must never be repacked in place.
-enum Input {
-    Snapshot(Memory),
-    Frame(OwnedFrame),
-}
-
-impl Input {
-    fn bytes(&self) -> &[u8] {
-        match self {
-            Self::Snapshot(memory) => memory.bytes(),
-            Self::Frame(frame) => frame.data(),
-        }
-    }
-
-    fn release(self) -> Option<Memory> {
-        match self {
-            Self::Snapshot(memory) => Some(memory),
-            Self::Frame(frame) => {
-                drop(frame);
-                None
-            }
-        }
-    }
 }
 
 /// Start the CPU1-pinned, priority-4 worker and wait for resource initialization.
 /// One job token bounds memory/backlog; new triggers while busy are skipped.
 /// The callback runs on CPU1 and must return promptly. Worker errors are returned
 /// by join(); dropping CaptureSender shuts down the worker after its current job.
-/// Requires 2 MiB output PSRAM; non-UYVY fallback needs a further 4 MiB snapshot.
+/// Requires 2 MiB output PSRAM; input uses a read-only camera buffer lease.
 pub fn spawn<F>(
     config: Config,
     mut on_jpeg: F,
@@ -146,52 +113,28 @@ where
         .name("jpeg_encode".into())
         .stack_size(STACK_BYTES)
         .spawn(move || {
-            let resources = (|| -> camera::Result<_> {
-                let mut encoder = Encoder::new(config)?;
-                // Calibration needs only a small pattern, not an FHD allocation.
-                drop(encoder.calibrate(Memory::encoder(probe::WIDTH * probe::HEIGHT * 2, false)?)?);
-                let snapshot = if encoder.packing == pixels::Packing::Uyvy {
-                    None
-                } else {
-                    Some(Memory::snapshot()?)
-                };
-                Ok((encoder, snapshot))
-            })();
-            let (mut encoder, snapshot) = match resources {
-                Ok(resources) => resources,
+            let mut encoder = match Encoder::new(config) {
+                Ok(encoder) => encoder,
                 Err(error) => {
                     let _ = ready_tx.send(Err(error.to_string()));
                     return Err(error);
                 }
             };
-            if free_tx.send(snapshot).is_err() || ready_tx.send(Ok(())).is_err() {
+            if free_tx.send(()).is_err() || ready_tx.send(Ok(())).is_err() {
                 return Ok(());
             }
 
             let result = (|| -> camera::Result<()> {
-                while let Ok(Request { mut input, trigger }) = requests_rx.recv() {
+                while let Ok(Request { frame, trigger }) = requests_rx.recv() {
                     // An idle worker waits indefinitely without a WDT subscription.
-                    // Subscribe only for real work; feed after conversion/encoding,
+                    // Subscribe only for real work; feed after encoding,
                     // never from a timer that could hide a stalled encoder.
                     let watchdog = TaskWatchdog::subscribe()?;
-                    // Native UYVY skips repacking and conversion yields entirely.
-                    if let Input::Snapshot(snapshot) = &mut input {
-                        for (row_index, row) in snapshot.bytes_mut()[..FRAME_BYTES]
-                            .chunks_exact_mut(STRIDE)
-                            .enumerate()
-                        {
-                            pixels::repack_row(row, encoder.packing);
-                            if (row_index + 1) % 32 == 0 {
-                                // Sub-tick POSIX sleeps busy-wait on IDF. Block for idle1.
-                                unsafe { sys::vTaskDelay(1) };
-                            }
-                        }
-                    }
                     watchdog.reset()?;
-                    let (input, size) = encoder.encode(input)?;
+                    let (input, size) = encoder.encode(frame)?;
                     // Success guarantees JPEG DMA is done. Release the camera lease
                     // before publication/network copying to resume capture promptly.
-                    let snapshot = input.release();
+                    drop(input);
                     watchdog.reset()?;
 
                     on_jpeg(&EncodedImage {
@@ -203,7 +146,7 @@ where
                     watchdog.reset()?;
                     drop(watchdog);
                     // Return availability only after encoding/callback finish.
-                    if free_tx.send(snapshot).is_err() {
+                    if free_tx.send(()).is_err() {
                         break;
                     }
                     unsafe { sys::vTaskDelay(1) };
@@ -220,7 +163,7 @@ where
     match ready_rx.recv() {
         Ok(Ok(())) => Ok((
             CaptureSender {
-                free_snapshot: free_rx,
+                available: free_rx,
                 requests: requests_tx,
             },
             worker,
@@ -244,23 +187,13 @@ struct Memory {
     size: usize,
 }
 
-// Channels transfer the allocation, not aliases. The snapshot crosses task
-// boundaries only while DMA is quiescent; Encoder owns it during hardware use.
+// Encoder owns the allocation throughout DMA use; no aliases cross tasks.
 unsafe impl Send for Memory {}
 
 impl Memory {
-    fn snapshot() -> camera::Result<Self> {
-        // Allocated only for a non-native packing fallback.
-        Self::encoder(FRAME_BYTES, false)
-    }
-
-    fn encoder(size: usize, output: bool) -> camera::Result<Self> {
+    fn output(size: usize) -> camera::Result<Self> {
         let config = sys::jpeg_encode_memory_alloc_cfg_t {
-            buffer_direction: if output {
-                sys::jpeg_enc_buffer_alloc_direction_t_JPEG_ENC_ALLOC_OUTPUT_BUFFER
-            } else {
-                sys::jpeg_enc_buffer_alloc_direction_t_JPEG_ENC_ALLOC_INPUT_BUFFER
-            },
+            buffer_direction: sys::jpeg_enc_buffer_alloc_direction_t_JPEG_ENC_ALLOC_OUTPUT_BUFFER,
         };
         let mut allocated_size = 0;
         let pointer =
@@ -279,10 +212,6 @@ impl Memory {
     fn bytes(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.pointer, self.size) }
     }
-
-    fn bytes_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.pointer, self.size) }
-    }
 }
 
 impl Drop for Memory {
@@ -293,16 +222,15 @@ impl Drop for Memory {
 
 struct Encoder {
     handle: sys::jpeg_encoder_handle_t,
-    input: Option<Input>,
+    input: Option<OwnedFrame>,
     output: Memory,
     config: sys::jpeg_encode_cfg_t,
-    packing: pixels::Packing,
     dma_quiescent: bool,
 }
 
 impl Encoder {
     fn new(config: Config) -> camera::Result<Self> {
-        let output = Memory::encoder(OUTPUT_CAPACITY, true)?;
+        let output = Memory::output(OUTPUT_CAPACITY)?;
         let engine_config = sys::jpeg_encode_engine_cfg_t {
             intr_priority: 0,
             timeout_ms: ENCODE_TIMEOUT_MS,
@@ -319,88 +247,27 @@ impl Encoder {
             config: sys::jpeg_encode_cfg_t {
                 width: WIDTH as u32,
                 height: HEIGHT as u32,
-                // The enum selects the hardware YUV422 mode, not a proven byte
-                // order. calibrate() checks packing and pixel_reverse on silicon.
+                // Fixed UYVY input; hardware byte-order reversal is disabled.
                 src_type: sys::jpeg_enc_input_format_t_JPEG_ENCODE_IN_FORMAT_YUV422,
                 // FHD is aligned to 16x8 MCUs, so no padded rows are necessary.
                 sub_sample: sys::jpeg_down_sampling_type_t_JPEG_DOWN_SAMPLING_YUV422,
                 image_quality: config.quality,
                 pixel_reverse: false,
             },
-            packing: pixels::Packing::Yuyv,
             dma_quiescent: true,
         })
     }
 
-    fn calibrate(&mut self, mut snapshot: Memory) -> camera::Result<Memory> {
-        let mut best = None;
-        for packing in pixels::PROBE_ORDER {
-            for reverse in [false, true] {
-                let config = sys::jpeg_encode_cfg_t {
-                    width: probe::WIDTH as u32,
-                    height: probe::HEIGHT as u32,
-                    image_quality: 100,
-                    pixel_reverse: reverse,
-                    ..self.config
-                };
-                for (y, row) in snapshot.bytes_mut()[..probe::WIDTH * probe::HEIGHT * 2]
-                    .chunks_exact_mut(probe::WIDTH * 2)
-                    .enumerate()
-                {
-                    for (pair_index, bytes) in row.chunks_exact_mut(4).enumerate() {
-                        bytes.copy_from_slice(&packing.pack(probe::pair(pair_index * 2, y)));
-                    }
-                }
-                let (returned, size) =
-                    self.encode_with_config(Input::Snapshot(snapshot), config)?;
-                snapshot = returned.release().expect("calibration snapshot");
-                let score = probe::score(&self.output.bytes()[..size]).map_err(|reason| {
-                    log::error!("JPEG packing probe parse failed: {reason}");
-                    error("parse JPEG packing probe", sys::ESP_ERR_INVALID_RESPONSE)
-                })?;
-
-                if best.is_none_or(|(previous, _, _)| score < previous) {
-                    best = Some((score, packing, reverse));
-                }
-                unsafe { sys::vTaskDelay(1) };
-            }
-        }
-        let Some((score, packing, reverse)) = best else {
-            return Err(error(
-                "no JPEG packing probe result",
-                sys::ESP_ERR_INVALID_RESPONSE,
-            ));
-        };
-        if score > 8 {
-            log::error!("JPEG packing probe rejected all candidates; best score={score}");
-            return Err(error(
-                "verify hardware JPEG YUV422 packing",
-                sys::ESP_ERR_INVALID_RESPONSE,
-            ));
-        }
-        self.packing = packing;
-        self.config.pixel_reverse = reverse;
-
-        Ok(snapshot)
-    }
-
-    fn encode(&mut self, input: Input) -> camera::Result<(Input, usize)> {
-        self.encode_with_config(input, self.config)
-    }
-
-    fn encode_with_config(
-        &mut self,
-        input: Input,
-        config: sys::jpeg_encode_cfg_t,
-    ) -> camera::Result<(Input, usize)> {
+    fn encode(&mut self, input: OwnedFrame) -> camera::Result<(OwnedFrame, usize)> {
         // Keep the DMA-visible allocation/lease on every error/unwind path.
         self.input = Some(input);
         let input = self.input.as_ref().unwrap();
-        let input_bytes = input.bytes();
+        let input_bytes = input.data();
         let input_pointer = input_bytes.as_ptr();
-        let input_size = config
+        let input_size = self
+            .config
             .width
-            .checked_mul(config.height)
+            .checked_mul(self.config.height)
             .and_then(|pixels| pixels.checked_mul(2))
             .filter(|bytes| *bytes as usize <= input_bytes.len())
             .ok_or_else(|| error("invalid JPEG input dimensions", sys::ESP_ERR_INVALID_SIZE))?;
@@ -409,7 +276,7 @@ impl Encoder {
         check("encode JPEG image", unsafe {
             sys::jpeg_encoder_process(
                 self.handle,
-                &config,
+                &self.config,
                 input_pointer,
                 input_size,
                 self.output.pointer,
