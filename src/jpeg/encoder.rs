@@ -23,7 +23,7 @@ use super::{pixels, probe};
 const STACK_BYTES: usize = 8192;
 
 const ENCODE_TIMEOUT_MS: i32 = 1000;
-const OUTPUT_CAPACITY: usize = 8 * 1024 * 1024;
+const OUTPUT_CAPACITY: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
@@ -124,7 +124,7 @@ impl Input {
 /// One job token bounds memory/backlog; new triggers while busy are skipped.
 /// The callback runs on CPU1 and must return promptly. Worker errors are returned
 /// by join(); dropping CaptureSender shuts down the worker after its current job.
-/// Requires 8 MiB output PSRAM; non-UYVY fallback needs a further 4 MiB snapshot.
+/// Requires 2 MiB output PSRAM; non-UYVY fallback needs a further 4 MiB snapshot.
 pub fn spawn<F>(
     config: Config,
     mut on_jpeg: F,
