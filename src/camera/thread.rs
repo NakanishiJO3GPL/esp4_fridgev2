@@ -1,7 +1,7 @@
 //! Core-pinned camera acquisition thread with progress-based task watchdog feeding.
 
 use crate::{
-    camera::{self, Camera, Config, Frame},
+    camera::capture::{self as camera, Camera, Config, Frame},
     pthread_config::PthreadConfigGuard,
 };
 use esp_idf_sys as sys;

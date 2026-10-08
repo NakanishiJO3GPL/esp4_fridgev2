@@ -1,7 +1,7 @@
 // Run on the development host without ESP-IDF:
 // rustc --edition=2021 --test tests/wifi_store.rs -o /tmp/esp4_fridgev2_wifi_store_tests
 // /tmp/esp4_fridgev2_wifi_store_tests
-#[path = "../src/wifi_store.rs"]
+#[path = "../src/wifi/store.rs"]
 mod wifi_store;
 
 use std::sync::{

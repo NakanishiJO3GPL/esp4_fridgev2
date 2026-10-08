@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const html = await readFile(new URL('../src/wifi_page.html', import.meta.url), 'utf8');
+const html = await readFile(new URL('../src/wifi/page.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const snapshot = (boot = 'abc', version = 7, frame = 42) => ({
   boot_id: boot, version, frame_sequence: frame, bytes: 1234,

@@ -1,7 +1,7 @@
 // Run on the development host without ESP-IDF:
 // rustc --edition=2021 --test tests/wifi_nvs.rs -o /tmp/esp4_fridgev2_wifi_nvs_tests
 // /tmp/esp4_fridgev2_wifi_nvs_tests
-#[path = "../src/wifi_nvs.rs"]
+#[path = "../src/wifi/nvs.rs"]
 mod wifi_nvs;
 
 use std::io;
@@ -212,7 +212,7 @@ fn committed_id_is_used_by_next_open() {
 #[test]
 fn implementation_never_initializes_or_erases_nvs() {
     // The fake has no erase operation; also check the target-only FFI adapter.
-    let source = include_str!("../src/wifi_nvs.rs");
+    let source = include_str!("../src/wifi/nvs.rs");
     assert!(!source.contains("nvs_flash_"));
     assert!(!source.contains("nvs_erase"));
 }

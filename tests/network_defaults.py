@@ -267,7 +267,7 @@ class NetworkDefaultsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         idf = discover_idf()
-        cls.rust = (PROJECT / "src/network_defaults.rs").read_text()
+        cls.rust = (PROJECT / "src/wifi/defaults.rs").read_text()
         cls.bindings = (PROJECT / "idf/bindings.h").read_text()
         cls.wifi = (idf / "components/esp_wifi/include/esp_wifi.h").read_text()
         cls.http = (idf / "components/esp_http_server/include/esp_http_server.h").read_text()

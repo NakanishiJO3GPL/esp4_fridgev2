@@ -3,7 +3,7 @@
 // ./target/camera_stop_tests
 // These tests execute the production Rust algorithm against a modeled layout,
 // not the SDK ABI, real spinlocks, or hardware interrupt/DMA behavior.
-#[path = "../src/camera_stop.rs"]
+#[path = "../src/camera/stop.rs"]
 mod camera_stop;
 
 #[allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]

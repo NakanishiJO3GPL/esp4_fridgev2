@@ -1,10 +1,14 @@
 pub mod camera;
-pub mod camera_thread;
 pub mod jpeg;
 mod logger;
 mod pthread_config;
-pub mod trigger;
 pub mod wifi;
+
+pub use camera::{thread as camera_thread, trigger};
+
+use camera::capture;
+use jpeg::encoder;
+use wifi::service;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
@@ -14,53 +18,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bind the log crate to the ESP Logging facilities
     logger::initialize().expect("failed to initialize ESP-IDF logging");
 
-    let wifi_service = wifi::start(wifi::Config::from_build()?)?;
+    let wifi_service = service::start(service::Config::from_build()?)?;
     let jpeg_publisher = wifi_service.publisher();
     let trigger_publisher = jpeg_publisher.clone();
 
-    let config = camera::Config {
+    let config = capture::Config {
         xclk_gpio: None,
         reset_gpio: None,
         pwdn_gpio: None,
-        ..camera::Config::new(7, 8)
+        ..capture::Config::new(7, 8)
     };
     // Sample three configured regions for APL-based trigger detection.
     let regions = [
-        camera::Region {
+        capture::Region {
             x: 0,
             y: 0,
-            width: camera::WIDTH / 10,
-            height: camera::HEIGHT / 10,
+            width: capture::WIDTH / 10,
+            height: capture::HEIGHT / 10,
         },
-        camera::Region {
-            x: camera::WIDTH / 10,
+        capture::Region {
+            x: capture::WIDTH / 10,
             y: 0,
-            width: camera::WIDTH / 10,
-            height: camera::HEIGHT / 10,
+            width: capture::WIDTH / 10,
+            height: capture::HEIGHT / 10,
         },
-        camera::Region {
-            x: 2 * (camera::WIDTH / 10),
+        capture::Region {
+            x: 2 * (capture::WIDTH / 10),
             y: 0,
-            width: camera::WIDTH - 2 * (camera::WIDTH / 10),
-            height: camera::HEIGHT / 10,
+            width: capture::WIDTH - 2 * (capture::WIDTH / 10),
+            height: capture::HEIGHT / 10,
         },
     ];
     // Initial tuning values from the reference detector, in raw Y units.
-    let mut apl_trigger = trigger::AplTrigger::new(trigger::AplTriggerConfig {
+    let mut apl_trigger = camera::trigger::AplTrigger::new(camera::trigger::AplTriggerConfig {
         settle_velocity_abs_max: 0.05,
         settle_frames_required: 2,
         wait_to_detect_velocity_abs_min: 0.2,
     });
-    let jpeg_config = jpeg::Config { quality: 60 };
+    let jpeg_config = encoder::Config { quality: 60 };
 
-    let (jpeg_sender, jpeg_thread) = jpeg::spawn(jpeg_config, move |image| {
+    let (jpeg_sender, jpeg_thread) = encoder::spawn(jpeg_config, move |image| {
         if let Err(error) = jpeg_publisher.publish(image) {
             log::warn!("JPEG publication failed; previous image retained: {error}");
         }
     })?;
     let mut jpeg_available = true;
 
-    let capture_thread = camera_thread::spawn(config, move |frame| {
+    let capture_thread = camera::thread::spawn(config, move |frame| {
         // Compute on every acquired frame for trigger detection.
         let means = frame.average_luminance(&regions);
         match &means {

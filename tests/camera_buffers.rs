@@ -1,7 +1,7 @@
 // Run on the development host without ESP-IDF:
 // rustc --edition=2021 --test tests/camera_buffers.rs -o target/camera_buffers_tests
 // ./target/camera_buffers_tests
-#[path = "../src/camera_buffers.rs"]
+#[path = "../src/camera/buffers.rs"]
 mod buffers;
 
 use buffers::{Buffers, FrameLease, LeasePool};

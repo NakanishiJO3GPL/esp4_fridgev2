@@ -1,7 +1,7 @@
 // Run on the development host without ESP-IDF:
 // rustc --edition=2021 --test tests/jpeg_pixels.rs -o target/jpeg_pixels_tests
 // ./target/jpeg_pixels_tests
-#[path = "../src/jpeg_pixels.rs"]
+#[path = "../src/jpeg/pixels.rs"]
 mod jpeg_pixels;
 
 use jpeg_pixels::{repack_row, Packing, PROBE_ORDER};

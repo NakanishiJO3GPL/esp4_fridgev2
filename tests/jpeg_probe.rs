@@ -1,7 +1,7 @@
 // Standalone host tests, without ESP-IDF or a JPEG decoder:
 // rustc --edition=2021 --test tests/jpeg_probe.rs -o target/jpeg_probe_tests
 // ./target/jpeg_probe_tests
-#[path = "../src/jpeg_probe.rs"]
+#[path = "../src/jpeg/probe.rs"]
 mod jpeg_probe;
 
 use jpeg_probe::{pair, score, HEIGHT, WIDTH};
