@@ -8,6 +8,7 @@ struct EspLogger;
 static LOGGER: EspLogger = EspLogger;
 
 pub const CAPTURE_TRIGGER_TARGET: &str = "capture_trigger";
+pub const WIFI_IP_TARGET: &str = "wifi_ip";
 
 pub fn initialize() -> Result<(), SetLoggerError> {
     log::set_logger(&LOGGER)?;
@@ -33,7 +34,8 @@ fn idf_level(level: Level) -> (sys::esp_log_level_t, char) {
 impl Log for EspLogger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         if metadata.level() > Level::Warn
-            && (metadata.level() != Level::Info || metadata.target() != CAPTURE_TRIGGER_TARGET)
+            && (metadata.level() != Level::Info
+                || !matches!(metadata.target(), CAPTURE_TRIGGER_TARGET | WIFI_IP_TARGET))
         {
             return false;
         }

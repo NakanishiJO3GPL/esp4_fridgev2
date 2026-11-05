@@ -1,13 +1,15 @@
 //! ESP-Hosted Wi-Fi STA and reboot-resilient browser delivery of the latest JPEG.
 //!
-//! Wi-Fi events only wake a reconnect worker. HTTP readers hold immutable PSRAM
+//! Wi-Fi events wake a reconnect worker and log assigned IPs. HTTP readers hold immutable PSRAM
 //! snapshots; JPEG publication never waits for a browser or holds a network lock.
 
 use crate::{jpeg::encoder::EncodedImage, pthread_config::PthreadConfigGuard};
 use esp_idf_sys as sys;
 use std::{
     ffi::{c_void, CStr},
-    io, ptr, slice,
+    io,
+    net::Ipv4Addr,
+    ptr, slice,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{sync_channel, SyncSender},
@@ -415,6 +417,13 @@ unsafe extern "C" fn station_event(
         && id == sys::ip_event_t_IP_EVENT_STA_GOT_IP as i32
         && !data.is_null()
     {
+        let event = &*data.cast::<sys::ip_event_got_ip_t>();
+        // ESP-IDF stores IPv4 addresses in network byte order in memory.
+        let ip = Ipv4Addr::from(event.ip_info.ip.addr.to_ne_bytes());
+        log::info!(
+            target: crate::logger::WIFI_IP_TARGET,
+            "Wi-Fi IP: {ip}; open http://{ip}/ or http://esp4-fridge.local/"
+        );
         let _ = station.wake.try_send(());
     }
 }

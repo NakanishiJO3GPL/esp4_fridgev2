@@ -214,7 +214,7 @@ espflash flash --monitor --port /dev/cu.usbmodemXXXX \
 
 ### ブラウザで表示
 
-同じLANのPCから **http://esp4-fridge.local/** を開きます。mDNSが使えない場合は、ルーターのDHCP一覧でIPを確認してアクセスしてください。IP直指定で運用する場合はDHCP予約を推奨します。
+同じLANのPCから **http://esp4-fridge.local/** を開きます。mDNSが使えない場合は、Wi-Fi接続時の `Wi-Fi IP: …` ログ、またはルーターのDHCP一覧でIPを確認してアクセスしてください。IP直指定で運用する場合はDHCP予約を推奨します。
 
 - JPEGの解像度は**1920×1080**。アプリの品質は**60**で、`jpeg::encoder::Config::default()` の既定値80とは異なります。
 
@@ -235,7 +235,7 @@ JPEGがまだない場合は503です。`/latest.jpg` の204は「新しい画�
 
 開いてあるページは切断時も前の画像を残し、最大5秒間隔で再試行します。P4再起動後はNVSの起動カウンタで更新番号のリセットを識別します。NVSは自動消去せず、書き込み失敗時は起動エラーにします。NVSを手動消去した場合はブラウザを再読み込みしてください。
 
-通常のアプリINFOログは `Capture trigger: frame N, center APL=…, delta=…` のみです。JPEG入力はUYVY固定・ハードウェアの `pixel_reverse=false` とし、起動時の較正・自動選択・較正ログはありません。WARN／ERRORは残ります。ROM／ブートローダー／アプリ初期化前のログは別です。
+通常のアプリINFOログは撮影トリガーの `Capture trigger: frame N, center APL=…, delta=…` と、Wi-FiのIPv4アドレス取得時の `Wi-Fi IP: …; open http://…/ or http://esp4-fridge.local/` です。再接続などでIPアドレスを再取得した場合も表示します。JPEG・HTTPの通常ログは表示しません。JPEG入力はUYVY固定・ハードウェアの `pixel_reverse=false` とし、起動時の較正・自動選択・較正ログはありません。WARN／ERRORは残ります。ROM／ブートローダー／アプリ初期化前のログは別です。
 
 ## 内部構造
 
